@@ -36,7 +36,7 @@ class computer_vision():
         self.render.cam_1.setName('cam_1')     
         self.render.cam_1.node().getLens().setFilmSize(36, 24)
         self.render.cam_1.node().getLens().setFocalLength(45)
-        self.render.cam_1.reparentTo(self.quad_model)
+        #self.render.cam_1.reparentTo(self.quad_model)
         self.render.cam_1.setPos(0, 0, 0.01)
         self.render.cam_1.setHpr(0, 270, 0)
 
@@ -203,6 +203,6 @@ class computer_vision():
                                 # print('\n')
                                 self.draw(img, corners, imgpts)
                                 self.task_frame_ant = task.frame
-                    # cv.imshow('Drone Camera',np.flipud(cv.cvtColor(img, cv.COLOR_RGB2BGR)))
+            cv.imshow('Drone Camera',np.flipud(cv.cvtColor(img, cv.COLOR_RGB2BGR)))
             self.time_total_img.append(time.time()-time_iter)
         return task.cont

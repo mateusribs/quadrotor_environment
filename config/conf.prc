@@ -1,4 +1,4 @@
-win-size 1920 1080
+win-size 800 600
 show-frame-rate-meter True
 clock-mode limited
 clock-frame-rate 100
