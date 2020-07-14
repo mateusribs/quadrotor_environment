@@ -2,6 +2,7 @@ import cv2 as cv
 import numpy as np
 import panda3d
 import time
+import math
 from collections import deque
 from scipy.spatial.transform import Rotation as R
 from tabulate import tabulate
@@ -36,9 +37,18 @@ class computer_vision():
         self.render.cam_1.setName('cam_1')     
         self.render.cam_1.node().getLens().setFilmSize(36, 24)
         self.render.cam_1.node().getLens().setFocalLength(45)
-        #self.render.cam_1.reparentTo(self.quad_model)
-        self.render.cam_1.setPos(0, 0, 0.01)
+        self.render.cam_1.reparentTo(self.render.render)
+        self.render.cam_1.setPos(0, 0, 6.1)
         self.render.cam_1.setHpr(0, 270, 0)
+
+        self.render.buffer2 = self.render.win.makeTextureBuffer('Buffer2', *window_size, None, True)
+        self.render.cam_2 = self.render.makeCamera(self.render.buffer2)
+        self.render.cam_2.setName('cam_2')     
+        self.render.cam_2.node().getLens().setFilmSize(36, 24)
+        self.render.cam_2.node().getLens().setFocalLength(45)
+        self.render.cam_2.reparentTo(self.render.render)
+        self.render.cam_2.setPos(0.1, 0, 6.1)
+        self.render.cam_2.setHpr(0, 270, 0)
 
             
     def calibrate(self, task):
@@ -74,7 +84,7 @@ class computer_vision():
             self.render.cam.lookAt(self.render.checker)
             self.render.cam_1.setPos(*cam_pos)
             self.render.cam_1.lookAt(self.render.checker)
-            ret, image = self.get_image()
+            ret, image = self.get_image(self.render.buffer)
             if ret:
                 img = cv.cvtColor(image, cv.COLOR_RGBA2BGR)
                 self.gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)                
@@ -111,14 +121,14 @@ class computer_vision():
             else:
                 return task.cont  
         
-    def get_image(self):
-        tex = self.render.buffer.getTexture()  
+    def get_image(self, buffer):
+        tex = buffer.getTexture()  
         img = tex.getRamImage()
         image = np.frombuffer(img, np.uint8)
         
         if len(image) > 0:
             image = np.reshape(image, (tex.getYSize(), tex.getXSize(), 4))
-            image = cv.resize(image, (0,0), fx=0.5, fy=0.5)
+            image = cv.resize(image, (0,0), fx=0.7, fy=0.7)
             return True, image
         else:
             return False, None
@@ -143,66 +153,106 @@ class computer_vision():
         img = cv.line(img, corner, tuple(imgpts[2].ravel()), (0, 0, 255), 1)
         return img    
     
-    def pos_deter(self, task):
-        if self.quad_env.done or task.frame == 0:
-            self.time_total_img = []
-            self.image_pos = None
-            self.vel_sens = deque(maxlen=100)
-            self.vel_img = deque(maxlen=100)
-        if self.IMG_POS_DETER:
-            time_iter = time.time()
-            if self.calibrated and task.frame % 10 == 0:           
-                ret, image = self.get_image()
-                if ret:
-                    img = cv.cvtColor(image, cv.COLOR_RGBA2BGR)
-                    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-                    fast_gray = cv.resize(gray, None, fx=1, fy=1)
-                    corner_good = self.fast.detect(fast_gray)
-                    if len(corner_good) > 50:
-                        ret, corners = cv.findChessboardCorners(img, (self.nCornersCols, self.nCornersRows),
-                                                                cv.CALIB_CB_ADAPTIVE_THRESH + cv.CALIB_CB_NORMALIZE_IMAGE + cv.CALIB_CB_FILTER_QUADS+ cv.CALIB_CB_FAST_CHECK)
-                        if ret:
-                            # corners = cv.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
-                            ret, rvecs, tvecs = cv.solvePnP(self.objp, corners, self.mtx, self.dist)
-                            if ret:
     
-                                axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
-                                imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, self.mtx, self.dist)
-                                imgpts = imgpts.astype(np.int)
+    def nothing(x):
+            pass
+
+    # #Criar janela para trackbar
+    # cv.namedWindow("Trackbars")
+
+    # #Criar trackbars
+    # cv.createTrackbar("L - H", "Trackbars", 0, 179, nothing)
+    # cv.createTrackbar("L - S", "Trackbars", 0, 255, nothing)
+    # cv.createTrackbar("L - V", "Trackbars", 0, 255, nothing)
+    # cv.createTrackbar("U - H", "Trackbars", 179, 179, nothing)
+    # cv.createTrackbar("U - S", "Trackbars", 255, 255, nothing)
+    # cv.createTrackbar("U - V", "Trackbars", 255, 255, nothing)
+
+
+    
+
+    def pos_deter(self, task):
         
-                                real_state = np.concatenate((self.quad_env.state[0:5:2], self.quad_env.state[6:10]))
-                                # rvecs[2] *= -1 
-                                r = R.from_rotvec(rvecs.flatten()).inv() 
-                                trans = np.dot(r.as_matrix(), tvecs).flatten() 
-                                trans[0] *= -1
-                                trans[1] *= -1
-                                trans[2] += -5.01
-                                
-                                euler = r.as_euler('xyz')
-                                euler[0:2] *= -1
-                                r = R.from_euler('xyz', euler)
-                                quaternion = r.as_quat()  
-                                quaternion = np.concatenate(([quaternion[3]],quaternion[0:3]))
-                                
-                                if self.image_pos is not None:
-                                    self.vel_img.append((trans - self.image_pos)/(self.quad_env.t_step*(task.frame-self.task_frame_ant)))
-                                    self.vel_sens.append(self.quad_sens.velocity_t0)
-                                    iv_var = np.mean(np.var(self.vel_img, axis = 0))
-                                    vs_var = np.mean(np.var(self.vel_sens, axis = 0))
-                                    if iv_var < 0.1 and len(self.vel_img)> 50:
-                                        self.quad_sens.velocity_t0 = self.quad_sens.velocity_t0*0.9+self.vel_img[-1]*0.1
-                                self.image_pos = trans
-                                self.image_quat = quaternion                                
-                                self.quad_sens.position_t0 = self.quad_sens.position_t0*0.8+self.image_pos*0.2
-                                self.quad_sens.quaternion_t0 = self.quad_sens.quaternion_t0*0.8+self.image_quat*0.2
-                                
-                                
-                                # image_state = np.concatenate((trans.flatten(), quaternion.flatten()))                    
-                                # data, header = self.tabulate_gen(real_state, image_state, self.quad_pos.pos_accel, self.quad_pos.pos_gps, self.quad_pos.quaternion_gyro, self.quad_pos.quaternion_triad)
-                                # print(tabulate(data, headers = header, numalign='center', stralign='center', floatfmt='.3f'))
-                                # print('\n')
-                                self.draw(img, corners, imgpts)
-                                self.task_frame_ant = task.frame
-            cv.imshow('Drone Camera',np.flipud(cv.cvtColor(img, cv.COLOR_RGB2BGR)))
-            self.time_total_img.append(time.time()-time_iter)
+        cX = None
+        cY = None
+        cX2 = None
+        cY2 = None
+
+        #Calculo de FPS
+        
+        #Setup de fonte
+        font = cv.FONT_HERSHEY_PLAIN
+        
+        if task.frame % 10 == 0:           
+            ret, image = self.get_image(self.render.buffer)
+            ret, image2 = self.get_image(self.render.buffer2)
+            if ret:
+                #Converte frame para HSV
+                hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+                hsv2 = cv.cvtColor(image2, cv.COLOR_BGR2HSV)
+                # l_h = cv.getTrackbarPos("L - H", "Trackbars")
+                # l_s = cv.getTrackbarPos("L - S", "Trackbars")
+                # l_v = cv.getTrackbarPos("L - V", "Trackbars")
+                # u_h = cv.getTrackbarPos("U - H", "Trackbars")
+                # u_s = cv.getTrackbarPos("U - S", "Trackbars")
+                # u_v = cv.getTrackbarPos("U - V", "Trackbars")
+
+                #Detecção de cor através de HSV
+                # lower = np.array([l_h, l_s, l_v])
+                # upper = np.array([u_h, u_s, u_v])
+                lower = np.array([0, 239, 222])
+                upper = np.array([179, 255, 255])
+                #Cria mascara para filtrar o objeto pela cor definida pelos limites
+                mask = cv.inRange(hsv, lower, upper)
+                mask2 = cv.inRange(hsv2, lower, upper)
+                #Cria kernel
+                kernel = np.ones((5,5), np.uint8)
+                #Aplica processo de Abertura (Erosão seguido de Dilatação)
+                opening = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel, iterations = 1)
+                opening2 = cv.morphologyEx(mask2, cv.MORPH_OPEN, kernel, iterations = 1)
+    
+    
+                _, cnts, _ = cv.findContours(opening.copy(), cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE)
+                _, cnts2, _ = cv.findContours(opening2.copy(), cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE)
+
+                # loop over the contours
+                for c in cnts:
+                    # compute the center of the contour
+                    M = cv.moments(c)
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    
+                    perimeter = cv.arcLength(c, True)
+                    metric = (4*math.pi*M["m00"])/perimeter**2
+                    print("Metric:",metric)
+                    if metric > 0.7:
+        
+                        #draw the contour and center of the shape on the image
+                        cv.drawContours(image, [c], -1, (255, 0, 0), 1)
+                        cv.circle(image, (cX, cY), 1, (255, 0, 0), 1)
+                
+                for c in cnts2:
+                    # compute the center of the contour
+                    M = cv.moments(c)
+                    cX2 = int(M["m10"] / M["m00"])
+                    cY2 = int(M["m01"] / M["m00"])
+                    
+                    perimeter = cv.arcLength(c, True)
+                    metric = (4*math.pi*M["m00"])/perimeter**2
+                    print("Metric2:",metric)
+                    if metric > 0.7:
+        
+                        #draw the contour and center of the shape on the image
+                        cv.drawContours(image2, [c], -1, (255, 0, 0), 1)
+                        cv.circle(image2, (cX2, cY2), 1, (255, 0, 0), 1)
+    
+    
+                cv.putText(image," Center:"+str(cX)+','+str(cY), (10, 80), font, 1, (255,255,255), 1)
+                cv.putText(image2," Center:"+str(cX2)+','+str(cY2), (10, 80), font, 1, (255,255,255), 1)
+                
+                cv.imshow('Camera 1',image)
+                cv.imshow('Camera 2', image2)
+                #cv.imshow('Drone Camera2',np.flipud(cv.cvtColor(image2, cv.COLOR_RGB2BGR)))
+                key = cv.waitKey(1)     
+
         return task.cont

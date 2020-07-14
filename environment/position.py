@@ -96,7 +96,7 @@ class quad_position():
             self.quaternion_triad, _ = self.sensor.triad()
             self.time_total_sens.append(time.time() - time_iter)
             self.error_aquisition()
-            
+            #print(self.env.state)
             #SENSOR CONTROL
             pos_vel = np.array([self.pos_accel[0], self.velocity_accel[0],
                                 self.pos_accel[1], self.velocity_accel[1],

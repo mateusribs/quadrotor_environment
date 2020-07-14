@@ -52,8 +52,8 @@ DESCRIÇÃO:
 
 
 
-IMG_POS_DETER = True
-REAL_CTRL = False
+IMG_POS_DETER = False
+REAL_CTRL = True
 HOVER = False
 
 EPISODE_STEPS = 3000
